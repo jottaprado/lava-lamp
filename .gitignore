@@ -1,0 +1,8 @@
+﻿node_modules/
+dist/
+build/
+LavaLamp.exe
+preferences.json
+*.log
+.env
+.DS_Store

@@ -1,0 +1,45 @@
+{
+  "name": "lava",
+  "repository": "https://github.com/dummy/dummy",
+  "version": "1.0.0",
+  "description": "Luminária de lava decorativa",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron .",
+    "build": "electron-builder",
+    "generate-icon": "node scripts/generate-icon.js"
+  },
+  "build": {
+    "appId": "com.jottaprado.lava.v2",
+    "publish": null,
+    "productName": "Lava",
+    "directories": {
+      "output": "dist"
+    },
+    "win": {
+      "target": "nsis",
+      "icon": "assets/icon.png"
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "installerIcon": "assets/icon.ico",
+      "uninstallerIcon": "assets/icon.ico",
+      "allowToChangeInstallationDirectory": false,
+      "createDesktopShortcut": "always",
+      "createStartMenuShortcut": true,
+      "shortcutName": "Lava",
+      "deleteAppDataOnUninstall": true
+    }
+  },
+  "author": "jottaprado",
+  "license": "MIT",
+  "dependencies": {},
+  "devDependencies": {
+    "electron": "^28.2.3",
+    "electron-builder": "^24.9.1",
+    "canvas": "^2.11.2"
+  }
+}
+

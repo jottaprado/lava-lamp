@@ -1,0 +1,296 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Lava</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; overflow: hidden; }
+  body { font-family: "Segoe UI", system-ui, sans-serif; color: #fff; }
+  body.idle { cursor: none; }
+  canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+  #toast {
+    position: fixed; left: 50%; bottom: 7vh; transform: translateX(-50%);
+    padding: 10px 18px; border-radius: 999px; font-size: 15px;
+    background: rgba(0,0,0,.35); backdrop-filter: blur(10px);
+    opacity: 0; transition: opacity .6s; pointer-events: none; white-space: nowrap;
+  }
+  #toast.on { opacity: 1; }
+  #help {
+    position: fixed; top: 24px; left: 24px; padding: 18px 22px; border-radius: 18px;
+    background: rgba(0,0,0,.4); backdrop-filter: blur(14px);
+    font-size: 14px; line-height: 1.9; transition: opacity .6s; max-width: 320px;
+  }
+  #help.off { opacity: 0; pointer-events: none; }
+  #help b { display: inline-block; min-width: 64px; font-weight: 600; }
+  #help span { opacity: .75; }
+  #help h1 { font-size: 17px; font-weight: 600; margin: 0 0 6px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="toast"></div>
+<div id="help">
+  <h1>Lava</h1>
+  <div><b>F</b><span>tela cheia (ou duplo clique)</span></div>
+  <div><b>M</b><span>minimizar tela atual</span></div>
+  <div><b>C</b><span>próxima cor</span></div>
+  <div><b>L</b><span>próximo layout</span></div>
+  <div><b>A</b><span>troca automática liga/desliga</span></div>
+  <div><b>↑ ↓</b><span>velocidade</span></div>
+  <div><b>← →</b><span>brilho</span></div>
+  <div><b>Espaço</b><span>pausar</span></div>
+  <div><b>H</b><span>mostrar ou esconder esta ajuda</span></div>
+</div>
+
+<script>
+(async () => {
+  const canvas = document.getElementById('c');
+  const gl = canvas.getContext('webgl', { antialias: false });
+  if (!gl) { document.body.innerHTML = '<p style="padding:40px">Este computador não suporta WebGL.</p>'; return; }
+
+  const MAX = 32;
+  const vs = `attribute vec2 a; void main(){ gl_Position = vec4(a,0.,1.); }`;
+  const fs = `
+  precision highp float;
+  uniform vec2 u_res;
+  uniform float u_time;
+  uniform vec3 u_b[${MAX}];
+  uniform int u_n;
+  uniform vec3 u_bgTop, u_bgBot, u_c1, u_c2;
+  uniform int u_mirror;
+  uniform float u_fade;
+
+  float field(vec2 p){
+    float f = 0.;
+    for (int i = 0; i < ${MAX}; i++){
+      if (i >= u_n) break;
+      vec2 d = p - u_b[i].xy;
+      f += u_b[i].z * u_b[i].z / (dot(d,d) + 1e-4);
+    }
+    return f;
+  }
+  float hash(vec2 p){ return fract(sin(dot(p, vec2(12.9898,78.233))) * 43758.5453); }
+
+  void main(){
+    vec2 uv = gl_FragCoord.xy / u_res;
+    float asp = u_res.x / u_res.y;
+    vec2 p = vec2(uv.x * asp, uv.y);
+    if (u_mirror >= 1) p.x = asp*0.5 - abs(p.x - asp*0.5);
+    if (u_mirror == 2) p.y = 0.5 - abs(p.y - 0.5);
+
+    float f = field(p);
+    vec3 bg = mix(u_bgBot, u_bgTop, uv.y);
+    bg += u_c1 * 0.22 * smoothstep(0.15, 1.0, f);
+
+    float t = clamp(p.y * 1.05 + (f - 1.) * 0.06, 0., 1.);
+    vec3 wax = mix(u_c2, u_c1, t);
+    wax *= 0.78 + 0.32 * smoothstep(1.0, 3.5, f);
+    wax += smoothstep(1.6, 1.0, f) * 0.18 * mix(u_c1, vec3(1.), .4);
+
+    vec3 col = mix(bg, wax, smoothstep(0.96, 1.04, f));
+    vec2 v = uv - .5;
+    col *= 1. - dot(v,v) * 0.7;
+    col += (hash(gl_FragCoord.xy + u_time) - 0.5) / 128.;
+    gl_FragColor = vec4(col * u_fade, 1.);
+  }`;
+
+  function sh(type, src){
+    const s = gl.createShader(type); gl.shaderSource(s, src); gl.compileShader(s);
+    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s));
+    return s;
+  }
+  const prog = gl.createProgram();
+  gl.attachShader(prog, sh(gl.VERTEX_SHADER, vs));
+  gl.attachShader(prog, sh(gl.FRAGMENT_SHADER, fs));
+  gl.linkProgram(prog); gl.useProgram(prog);
+  gl.bindBuffer(gl.ARRAY_BUFFER, gl.createBuffer());
+  gl.bufferData(gl.ARRAY_BUFFER, new Float32Array([-1,-1, 1,-1, -1,1, 1,1]), gl.STATIC_DRAW);
+  const aLoc = gl.getAttribLocation(prog, 'a');
+  gl.enableVertexAttribArray(aLoc); gl.vertexAttribPointer(aLoc, 2, gl.FLOAT, false, 0, 0);
+  const U = n => gl.getUniformLocation(prog, n);
+  const u = { res: U('u_res'), time: U('u_time'), b: U('u_b'), n: U('u_n'),
+    bgTop: U('u_bgTop'), bgBot: U('u_bgBot'), c1: U('u_c1'), c2: U('u_c2'),
+    mirror: U('u_mirror'), fade: U('u_fade') };
+
+  const hex = h => [1,3,5].map(i => parseInt(h.slice(i, i+2), 16) / 255);
+  const PALETTES = [
+    { name: 'Clássica',   top: '#3a0d3f', bot: '#12031a', c1: '#ffb13b', c2: '#ff3d2e' },
+    { name: 'Oceano',     top: '#06324a', bot: '#020c18', c1: '#7ef3e6', c2: '#1e7bff' },
+    { name: 'Neon',       top: '#1a0638', bot: '#05010f', c1: '#27f5ff', c2: '#ff2bd6' },
+    { name: 'Floresta',   top: '#0e2a14', bot: '#030a05', c1: '#e9ff6b', c2: '#1fbf5a' },
+    { name: 'Pôr do sol', top: '#4a1030', bot: '#150412', c1: '#ffd36e', c2: '#ff4f8b' },
+    { name: 'Uva',        top: '#2a0f4f', bot: '#0a0418', c1: '#ff9ef0', c2: '#8a3dff' },
+    { name: 'Gelo',       top: '#1b2c4a', bot: '#060b16', c1: '#ffffff', c2: '#7fb6ff' },
+    { name: 'Âmbar',      top: '#3b1e05', bot: '#100702', c1: '#ffe39a', c2: '#ff8a00' },
+    { name: 'Menta',      top: '#0c3a36', bot: '#03100f', c1: '#fff4c2', c2: '#2de0a8' },
+    { name: 'Magma',      top: '#260404', bot: '#080101', c1: '#ffcf5c', c2: '#d4130f' }
+  ].map(p => ({ name: p.name, top: hex(p.top), bot: hex(p.bot), c1: hex(p.c1), c2: hex(p.c2) }));
+
+  const LAYOUTS = [
+    { name: 'Fluxo',          mirror: 0, count: 16, rMin: .06, rMax: .15, sp: 1.0 },
+    { name: 'Bolhas grandes', mirror: 0, count: 7,  rMin: .14, rMax: .24, sp: 0.6 },
+    { name: 'Enxame',         mirror: 0, count: 30, rMin: .03, rMax: .07, sp: 1.4 },
+    { name: 'Espelho',        mirror: 2, count: 12, rMin: .08, rMax: .18, sp: 0.8 }
+  ];
+
+  // IPC Load Prefs
+  const prefs = window.electronAPI ? await window.electronAPI.loadPrefs() : null;
+  let palIdx = prefs?.palIdx ?? 0;
+  let layIdx = prefs?.layIdx ?? 0;
+  let speed = prefs?.speed ?? 1;
+  let brightness = prefs?.brightness ?? 1.0;
+  let auto = prefs?.auto ?? true;
+  let paused = false;
+
+  function persistPrefs() {
+    if (window.electronAPI) {
+      window.electronAPI.savePrefs({ palIdx, layIdx, speed, auto, brightness });
+    }
+  }
+
+  let cur = JSON.parse(JSON.stringify(PALETTES[palIdx]));
+  let tgt = JSON.parse(JSON.stringify(cur));
+  let l = LAYOUTS[layIdx];
+
+  const blobs = Array.from({length: MAX}, () => ({
+    x: Math.random(), y: Math.random(),
+    vx: (Math.random()-.5)*.3, vy: (Math.random()-.5)*.3,
+    r: 0, tr: 0
+  }));
+
+  function resetLayout(){
+    l = LAYOUTS[layIdx];
+    blobs.forEach((b, i) => {
+      if(i < l.count && b.r === 0) { b.y = -0.2; b.r = 0.01; }
+      b.tr = i < l.count ? l.rMin + Math.random()*(l.rMax - l.rMin) : 0;
+    });
+  }
+  resetLayout();
+
+  let last = performance.now(), t = 0, lastAutoC = 0, lastAutoL = 0;
+  
+  function frame(now) {
+    requestAnimationFrame(frame);
+    let dt = Math.min((now - last) / 1000, 0.1);
+    last = now;
+    if (paused) dt = 0;
+    t += dt * speed;
+
+    if (auto && !paused) {
+      if (now - lastAutoC > 25000) { lastAutoC = now; palIdx = (palIdx+1)%PALETTES.length; tgt = PALETTES[palIdx]; persistPrefs(); }
+      if (now - lastAutoL > 90000) { lastAutoL = now; layIdx = (layIdx+1)%LAYOUTS.length; resetLayout(); persistPrefs(); }
+    }
+
+    const lerp = (a, b, amt) => a + (b - a) * amt;
+    ['top','bot','c1','c2'].forEach(k => cur[k] = cur[k].map((v,i) => lerp(v, tgt[k][i], dt*.5)));
+
+    const asp = canvas.width / canvas.height;
+    const bData = new Float32Array(MAX * 3);
+    blobs.forEach((b, i) => {
+      b.r = lerp(b.r, b.tr, dt * (b.tr === 0 ? 2 : .5));
+      if (b.r < 0.01 && b.tr === 0) return;
+      b.x += b.vx * dt * speed * l.sp;
+      b.y += b.vy * dt * speed * l.sp;
+      if (b.x < -0.2) b.vx = Math.abs(b.vx); if (b.x > asp+0.2) b.vx = -Math.abs(b.vx);
+      if (b.y < -0.2) { b.vy = Math.abs(b.vy); b.y = -0.2; }
+      if (b.y > 1.2) { b.vy = -Math.abs(b.vy); b.y = 1.2; }
+      bData[i*3] = b.x; bData[i*3+1] = b.y; bData[i*3+2] = b.r;
+    });
+
+    if (canvas.width !== innerWidth || canvas.height !== innerHeight) {
+      canvas.width = innerWidth; canvas.height = innerHeight;
+      gl.viewport(0, 0, canvas.width, canvas.height);
+    }
+
+    gl.uniform2f(u.res, canvas.width, canvas.height);
+    gl.uniform1f(u.time, t);
+    gl.uniform1i(u.n, l.count);
+    gl.uniform1i(u.mirror, l.mirror);
+    gl.uniform1f(u.fade, brightness);
+    gl.uniform3fv(u.b, bData);
+    gl.uniform3fv(u.bgTop, cur.top); gl.uniform3fv(u.bgBot, cur.bot);
+    gl.uniform3fv(u.c1, cur.c1); gl.uniform3fv(u.c2, cur.c2);
+
+    gl.drawArrays(gl.TRIANGLE_STRIP, 0, 4);
+  }
+  requestAnimationFrame(frame);
+
+  const toast = document.getElementById('toast');
+  let tTimer;
+  function show(msg) {
+    toast.textContent = msg; toast.classList.add('on');
+    clearTimeout(tTimer); tTimer = setTimeout(() => toast.classList.remove('on'), 2000);
+  }
+
+  let idleTimer;
+  addEventListener('mousemove', () => {
+    document.body.classList.remove('idle');
+    clearTimeout(idleTimer); idleTimer = setTimeout(() => document.body.classList.add('idle'), 2000);
+  });
+
+  if (window.electronAPI && window.electronAPI.onActionBroadcasted) {
+    window.electronAPI.onActionBroadcasted((action) => {
+      if (action.type === 'palette') {
+        palIdx = action.value;
+        tgt = PALETTES[palIdx];
+        lastAutoC = performance.now();
+        show(tgt.name);
+      } else if (action.type === 'layout') {
+        layIdx = action.value;
+        resetLayout();
+        lastAutoL = performance.now();
+        show(LAYOUTS[layIdx].name);
+      } else if (action.type === 'auto') {
+        auto = action.value;
+        lastAutoC = lastAutoL = performance.now();
+        show('Auto: ' + (auto ? 'ON' : 'OFF'));
+      } else if (action.type === 'speed') {
+        speed = action.value;
+        show('Vel: ' + speed.toFixed(1));
+      } else if (action.type === 'brightness') {
+        brightness = action.value;
+        show('Brilho: ' + Math.round(brightness*100) + '%');
+      } else if (action.type === 'paused') {
+        paused = action.value;
+        show(paused ? 'Pausado' : 'Rodando');
+      } else if (action.type === 'help') {
+        document.getElementById('help').classList.toggle('off');
+      } else if (action.type === 'minimize') {
+        if (window.electronAPI) window.electronAPI.minimizeWindow();
+      } else if (action.type === 'fullscreen') {
+        if (window.electronAPI) window.electronAPI.toggleFullscreen();
+      } else if (action.type === 'quit') {
+        if (window.electronAPI) window.electronAPI.quit();
+      }
+    });
+  }
+
+  addEventListener('keydown', e => {
+    let actionToBroadcast = null;
+    
+    if (e.key.toLowerCase() === 'h') { document.getElementById('help').classList.toggle('off'); actionToBroadcast = { type: 'help' }; }
+    else if (e.key.toLowerCase() === 'c') { palIdx = (palIdx+1)%PALETTES.length; tgt = PALETTES[palIdx]; lastAutoC = performance.now(); show(tgt.name); persistPrefs(); actionToBroadcast = { type: 'palette', value: palIdx }; }
+    else if (e.key.toLowerCase() === 'l') { layIdx = (layIdx+1)%LAYOUTS.length; resetLayout(); lastAutoL = performance.now(); show(LAYOUTS[layIdx].name); persistPrefs(); actionToBroadcast = { type: 'layout', value: layIdx }; }
+    else if (e.key.toLowerCase() === 'a') { auto = !auto; lastAutoC = lastAutoL = performance.now(); show('Auto: ' + (auto ? 'ON' : 'OFF')); persistPrefs(); actionToBroadcast = { type: 'auto', value: auto }; }
+    else if (e.key === 'ArrowUp') { speed = Math.min(3, speed + 0.2); show('Vel: ' + speed.toFixed(1)); persistPrefs(); actionToBroadcast = { type: 'speed', value: speed }; }
+    else if (e.key === 'ArrowDown') { speed = Math.max(0.2, speed - 0.2); show('Vel: ' + speed.toFixed(1)); persistPrefs(); actionToBroadcast = { type: 'speed', value: speed }; }
+    else if (e.key === 'ArrowRight') { brightness = Math.min(1.0, brightness + 0.1); show('Brilho: ' + Math.round(brightness*100) + '%'); persistPrefs(); actionToBroadcast = { type: 'brightness', value: brightness }; }
+    else if (e.key === 'ArrowLeft') { brightness = Math.max(0.1, brightness - 0.1); show('Brilho: ' + Math.round(brightness*100) + '%'); persistPrefs(); actionToBroadcast = { type: 'brightness', value: brightness }; }
+    else if (e.key === ' ') { paused = !paused; show(paused ? 'Pausado' : 'Rodando'); actionToBroadcast = { type: 'paused', value: paused }; }
+    else if (e.key === 'Escape') { if (window.electronAPI) window.electronAPI.quit(); actionToBroadcast = { type: 'quit' }; }
+    else if (e.key.toLowerCase() === 'f') { if (window.electronAPI) window.electronAPI.toggleFullscreen(); actionToBroadcast = { type: 'fullscreen' }; }
+    else if (e.key.toLowerCase() === 'm') { if (window.electronAPI) window.electronAPI.minimizeWindow(); actionToBroadcast = { type: 'minimize' }; }
+    
+    if (e.shiftKey && actionToBroadcast && window.electronAPI && window.electronAPI.broadcastAction) {
+      window.electronAPI.broadcastAction(actionToBroadcast);
+    }
+  });
+  
+  addEventListener('dblclick', () => { if (window.electronAPI) window.electronAPI.toggleFullscreen(); });
+
+})();
+</script>
+</body>
+</html>
+
