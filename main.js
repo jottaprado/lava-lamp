@@ -14,7 +14,7 @@ if (!gotTheLock) {
 
 // Prefs handling
 // Save in the app's installation directory if possible, or fallback to appData if not writable.
-// Since NSIS installs per-user to C:\Users\joaop\jottaprado\Lava, it should be writable.
+// Since NSIS installs per-user, it should be writable.
 // But when running in dev mode, we might want to save it in the project root.
 const installDir = path.dirname(app.getPath('exe'));
 const isDev = !app.isPackaged;
