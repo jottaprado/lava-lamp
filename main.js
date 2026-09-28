@@ -119,8 +119,9 @@ ipcMain.on('toggle-fullscreen', (event) => {
 });
 
 ipcMain.on('broadcast-action', (event, action) => {
+  const senderWin = BrowserWindow.fromWebContents(event.sender);
   windows.forEach(w => {
-    if (!w.isDestroyed()) {
+    if (!w.isDestroyed() && w !== senderWin) {
       w.webContents.send('action-broadcasted', action);
     }
   });
