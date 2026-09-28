@@ -255,7 +255,11 @@
         paused = action.value;
         show(paused ? 'Pausado' : 'Rodando');
       } else if (action.type === 'help') {
-        document.getElementById('help').classList.toggle('off');
+        if (action.value) {
+          document.getElementById('help').classList.add('off');
+        } else {
+          document.getElementById('help').classList.remove('off');
+        }
       } else if (action.type === 'minimize') {
         if (window.electronAPI) window.electronAPI.minimizeWindow();
       } else if (action.type === 'fullscreen') {
@@ -269,7 +273,11 @@
   addEventListener('keydown', e => {
     let actionToBroadcast = null;
     
-    if (e.key.toLowerCase() === 'h') { document.getElementById('help').classList.toggle('off'); actionToBroadcast = { type: 'help' }; }
+    if (e.key.toLowerCase() === 'h') { 
+      const helpEl = document.getElementById('help');
+      helpEl.classList.toggle('off'); 
+      actionToBroadcast = { type: 'help', value: helpEl.classList.contains('off') }; 
+    }
     else if (e.key.toLowerCase() === 'c') { palIdx = (palIdx+1)%PALETTES.length; tgt = PALETTES[palIdx]; lastAutoC = performance.now(); show(tgt.name); persistPrefs(); actionToBroadcast = { type: 'palette', value: palIdx }; }
     else if (e.key.toLowerCase() === 'l') { layIdx = (layIdx+1)%LAYOUTS.length; resetLayout(); lastAutoL = performance.now(); show(LAYOUTS[layIdx].name); persistPrefs(); actionToBroadcast = { type: 'layout', value: layIdx }; }
     else if (e.key.toLowerCase() === 'a') { auto = !auto; lastAutoC = lastAutoL = performance.now(); show('Auto: ' + (auto ? 'ON' : 'OFF')); persistPrefs(); actionToBroadcast = { type: 'auto', value: auto }; }
